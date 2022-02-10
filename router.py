@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from enum import Enum
 from typing import Optional, Callable, Any
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from abc import ABCMeta, abstractmethod
 
 
 def distance(p1: np.array, p2: np.array) -> float:
@@ -54,10 +55,10 @@ class Node:
     def transmit(self, size: int, target: Node):
         """transmission happens once"""
         dist = distance(self.position, target.position)
-        tx = self.energy_tx(size, dist)
-        rx = target.energy_rx(size)
-        self.energy -= tx
-        target.energy -= rx
+        e_tx = self.energy_tx(size, dist)
+        e_rx = target.energy_rx(size)
+        self.energy -= e_tx
+        target.energy -= e_rx
 
     def energy_tx(self, size: int, dist: float) -> float:
         if dist <= self.dist_threshold:
@@ -71,96 +72,92 @@ class Node:
         return size * self.e0_rx
 
 
-class Router:
+class Router(metaclass=ABCMeta):
     """Simple, round-based simulation of routing"""
+    default_styles = ["rs", "gs", "bo"]
 
-    def __init__(self, nodes: Iterable[Node]):
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            styles: Optional[Mapping[Any, str]] = None
+    ):
         # not supporting dynamic change of nodes
-        self.sensor_nodes = []
-        self.relay_nodes = []
-        self.sink_node = None
-        self.position_max = np.max([node.position for node in nodes], axis=0)
-        self.position_min = np.min([node.position for node in nodes], axis=0)
+        self.sink = sink
+        self.non_sinks = tuple(non_sinks)
+        self.nodes = tuple([sink, *non_sinks])
 
-        # node classification
-        for node in nodes:
-            match node.category:
-                case NodeCategory.sensor:
-                    self.sensor_nodes.append(node)
-                case NodeCategory.relay:
-                    self.relay_nodes.append(node)
-                case NodeCategory.sink:
-                    if not self.sink_node:
-                        self.sink_node = node
-                    else:
-                        raise Exception("Duplicated sink node.")
-                case _:
-                    raise Exception("Invalid node category.")
-        if not self.sink_node:
-            raise Exception("Sink node does not exist.")
-
-        self.nodes = tuple([self.sink_node] + self.relay_nodes + self.sensor_nodes)
-        self.indices = {node: i for i, node in enumerate(self.nodes)}
+        # assign index to each node
+        self.__nodes_to_indices = {node: i for i, node in enumerate(self.nodes)}
 
         # use a vector to represent route
-        self.route = np.array([0] * len(self.nodes))
+        self.route = np.array(
+            [0 for _ in range(len(self.nodes))]
+        )
 
+        # plotting
         # only support 2-d plot
-        self.plotter = Plotter(
+        if styles:
+            self.styles = dict(styles)
+        else:
+            self.styles = dict()
+
+        positions = [node.position for node in self.nodes]
+        self.position_max = np.max(positions, axis=0)
+        self.position_min = np.min(positions, axis=0)
+
+        self.plotter = Plotter2D(
             self.position_min[0],
             self.position_min[1],
             self.position_max[0],
             self.position_max[1],
             max(
                 self.position_max[axis] - self.position_min[axis] for axis in (0, 1)
-            ) / (len(self.relay_nodes) + 2)
+            ) / 10
         )
 
-    def initialize_topology(self):
-        # sensor nodes link to nearst relay
-        for node in self.sensor_nodes:
-            nearest_relay = argmin_(
-                lambda x: distance(node.position, x.position),
-                self.relay_nodes
-            )
-            self.route[self.indices[node]] = self.indices[nearest_relay]
+    def node(self, i: int) -> Node:
+        return self.nodes[i]
 
-        # relay nodes form a line
-        node = self.sink_node
-        free_relay = set(self.relay_nodes)
-        while len(free_relay) > 0:
-            nearest = argmin_(
-                lambda x: distance(node.position, x.position),
-                free_relay
-            )
-            self.route[self.indices[nearest]] = self.indices[node]
-            node = nearest
-            free_relay.remove(nearest)
+    def index(self, node: Node) -> int:
+        return self.__nodes_to_indices[node]
 
-    def unpowered_nodes(self):
-        for node in self.sensor_nodes:
-            yield node
-        for node in self.relay_nodes:
-            yield node
+    @abstractmethod
+    def initialize(self):
+        pass
+
+    @abstractmethod
+    def execute(self):
+        """execute for one round"""
+        pass
+
+    def get_node_style(self, node: Node) -> str:
+        if node.category in self.styles:
+            return self.styles[node.category]
+
+        for style in self.default_styles:
+            if style not in self.styles.values():
+                self.styles[node.category] = style
+                return style
+
+        # if style is not specified, or default styles have been used up.
+        self.styles[node.category] = ""
+        return ""
 
     def plot(self):
         # plot nodes
-        fmt = {
-            NodeCategory.sink: "rs",
-            NodeCategory.relay: "gs",
-            NodeCategory.sensor: "bo"
-        }
         for node in self.nodes:
-            self.plotter.plot_point(node.position, fmt[node.category])
+            style = self.get_node_style(node)
+            self.plotter.plot_point(node.position, style)
 
         # plot routes
         for i, src in enumerate(self.nodes):
-            dst = self.nodes[self.route[i]]
+            dst = self.node(self.route[i])
             self.plotter.plot_line(src.position, dst.position)
         self.plotter.show()
 
 
-class Plotter:
+class Plotter2D:
     def __init__(self, min_x: float, min_y: float, max_x: float, max_y: float, margin: float):
         self.fig, self.ax = plt.subplots()
         self.plt = plt
@@ -189,6 +186,65 @@ class Plotter:
     @staticmethod
     def show():
         plt.show()
+
+
+class SimpleRouter(Router):
+    def initialize(self):
+        sensors = []
+        relays = []
+        for node in self.non_sinks:
+            match node.category:
+                case NodeCategory.sensor:
+                    sensors.append(node)
+                case NodeCategory.relay:
+                    relays.append(node)
+                case _:
+                    raise Exception("Unexpected node category.")
+
+        # sensor nodes link to nearst relay
+        for node in sensors:
+            nearest_relay = argmin_(
+                lambda x: distance(node.position, x.position),
+                relays
+            )
+            self.route[self.index(node)] = self.index(nearest_relay)
+
+        # relay nodes form a line
+        node = self.sink
+        free_relay = set(relays)
+        while len(free_relay) > 0:
+            nearest = argmin_(
+                lambda x: distance(node.position, x.position),
+                free_relay
+            )
+            self.route[self.index(nearest)] = self.index(node)
+            node = nearest
+            free_relay.remove(nearest)
+
+    def execute(self):
+        pass
+
+
+class LEACH(Router):
+    def set_up_phase(self):
+        pass
+
+    def steady_state_phase(self):
+        pass
+
+    def initialize(self):
+        pass
+
+    def execute(self):
+        pass
+
+
+class APTEEN(Router):
+    def initialize(self):
+        pass
+
+    def execute(self):
+        pass
 
 
 def main():
@@ -223,8 +279,8 @@ def main():
                 Node(np.array([x, y]), NodeCategory.sensor)
             )
 
-    router = Router([sink] + relays + sensors)
-    router.initialize_topology()
+    router = SimpleRouter(sink, relays + sensors)
+    router.initialize()
     print(router.route)
     router.plot()
     print("")

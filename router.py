@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from enum import Enum
 from typing import Optional, Callable, Any
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from abc import ABCMeta, abstractmethod
 
 
@@ -74,13 +74,13 @@ class Node:
 
 class Router(metaclass=ABCMeta):
     """Simple, round-based simulation of routing"""
-    default_styles = ["rs", "gs", "bo"]
+    default_node_styles = ["rs", "gs", "bo"]
+    default_route_styles = [("-", "r"), ("-", "k")]
 
     def __init__(
             self,
             sink: Node,
-            non_sinks: Iterable[Node],
-            styles: Optional[Mapping[Any, str]] = None
+            non_sinks: Iterable[Node]
     ):
         # not supporting dynamic change of nodes
         self.sink = sink
@@ -97,10 +97,13 @@ class Router(metaclass=ABCMeta):
 
         # plotting
         # only support 2-d plot
-        if styles:
-            self.styles = dict(styles)
-        else:
-            self.styles = dict()
+
+        # cache for styles
+        self.__node_styles: dict[Any, str] = dict()
+        self.__route_styles: dict[Any, tuple[str, str]] = dict()
+        # function to get feature of a node, which distinguish it from other nodes.
+        self.node_feature_op = lambda n: n.category
+        self.route_feature_op = lambda n: n.category
 
         positions = [node.position for node in self.nodes]
         self.position_max = np.max(positions, axis=0)
@@ -122,6 +125,9 @@ class Router(metaclass=ABCMeta):
     def index(self, node: Node) -> int:
         return self.__nodes_to_indices[node]
 
+    def set_route(self, src: Node, dst: Node):
+        self.route[self.index(src)] = self.index(dst)
+
     @abstractmethod
     def initialize(self):
         pass
@@ -131,30 +137,73 @@ class Router(metaclass=ABCMeta):
         """execute for one round"""
         pass
 
-    def get_node_style(self, node: Node) -> str:
-        if node.category in self.styles:
-            return self.styles[node.category]
+    @staticmethod
+    def __set_style(cache: dict, *styles: tuple[Any, Any]):
+        for feature, style in styles:
+            cache[feature] = style
 
-        for style in self.default_styles:
-            if style not in self.styles.values():
-                self.styles[node.category] = style
+    def set_node_style(self, *styles: tuple[Any, str]):
+        self.__set_style(self.__node_styles, *styles)
+
+    def set_route_style(self, *styles: tuple[Any, tuple[str, str]]):
+        self.__set_style(self.__route_styles, *styles)
+
+    @staticmethod
+    def __get_style(
+            cache: dict,
+            feature_op: Callable[[Node], Any],
+            default_styles: list[Any],
+            exception_style: Any,
+            node: Node,
+    ):
+        feature = feature_op(node)
+        if feature in cache:
+            return cache[feature]
+        # automatically allocate a style in default styles, which has not been used
+        for style in default_styles:
+            if style not in cache.values():
+                cache[feature] = style
                 return style
-
         # if style is not specified, or default styles have been used up.
-        self.styles[node.category] = ""
-        return ""
+        cache[feature] = exception_style
+        return exception_style
 
-    def plot(self):
-        # plot nodes
+    def get_node_style(self, node: Node) -> str:
+        return self.__get_style(
+            self.__node_styles,
+            self.node_feature_op,
+            self.default_node_styles,
+            "",
+            node
+        )
+
+    def get_route_style(self, src: Node) -> tuple[str, str]:
+        return self.__get_style(
+            self.__route_styles,
+            self.route_feature_op,
+            self.default_route_styles,
+            ("-", "k"),
+            src
+        )
+
+    def plot_nodes(self):
         for node in self.nodes:
             style = self.get_node_style(node)
             self.plotter.plot_point(node.position, style)
 
-        # plot routes
+    def plot_routes(self):
         for i, src in enumerate(self.nodes):
             dst = self.node(self.route[i])
-            self.plotter.plot_line(src.position, dst.position)
+            ls, c = self.get_route_style(src)
+            self.plotter.plot_line(src.position, dst.position, linestyle=ls, color=c)
+
+    def show(self):
         self.plotter.show()
+
+    def plot(self):
+        self.plot_nodes()
+        self.plot_routes()
+        self.show()
 
 
 class Plotter2D:
@@ -164,10 +213,10 @@ class Plotter2D:
         # self.set_font()
         self.set_bound(min_x - margin, min_y - margin, max_x + margin, max_y + margin)
 
-    def plot_line(self, src, dst, color: Optional[str] = None):
+    def plot_line(self, src, dst, **kwargs):
         self.ax.add_line(
             Line2D(
-                (src[0], dst[0]), (src[1], dst[1]), linewidth=1, color=color
+                (src[0], dst[0]), (src[1], dst[1]), linewidth=1, **kwargs
             )
         )
 
@@ -226,8 +275,53 @@ class SimpleRouter(Router):
 
 
 class LEACH(Router):
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            *,
+            n_cluster: int
+    ):
+        super().__init__(sink, non_sinks)
+        self.n_cluster = n_cluster
+        self.round = 0
+        self.clusters: dict[Node, set[Node]] = dict()
+        self.route_feature_op = lambda n: n in self.clusters
+
+    def threshold(self, node: Node):
+        if node in self.clusters:
+            # if is a cluster head of last round
+            return 0
+        else:
+            p = self.n_cluster / len(self.non_sinks)
+            r = self.round
+            return p / (1 - p * (r % int(1 / p)))
+
     def set_up_phase(self):
-        pass
+        # cluster head selection
+        new_clusters = dict()
+        non_heads = set()
+        for node in filter(lambda n: n.energy > 0, self.non_sinks):
+            T = self.threshold(node)
+            t = rand()
+            if t < T:
+                # be selected as cluster head
+                new_clusters[node] = set()
+                self.set_route(node, self.sink)
+                # broadcast announcement
+            else:
+                non_heads.add(node)
+
+        if new_clusters:
+            for node in non_heads:
+                nearest = argmin_(
+                    lambda x: distance(node.position, x.position), new_clusters
+                )
+                # send join-request
+                new_clusters[nearest].add(node)
+                self.set_route(node, nearest)
+
+        self.clusters = new_clusters
 
     def steady_state_phase(self):
         pass
@@ -236,7 +330,8 @@ class LEACH(Router):
         pass
 
     def execute(self):
-        pass
+        self.set_up_phase()
+        self.steady_state_phase()
 
 
 class APTEEN(Router):
@@ -245,6 +340,47 @@ class APTEEN(Router):
 
     def execute(self):
         pass
+
+
+def test_leach():
+    sink = Node(np.array([0, 0]), NodeCategory.sink)
+    interval = 100
+    d_max = 10
+    phi_max = pi / 10
+    n_relay = 5
+    relays = []
+    x = 0
+    y = 0
+    for _ in range(n_relay):
+        d = d_max * rand()
+        phi = phi_max * rand() - phi_max / 2
+        r = interval + d
+        x += r * cos(phi)
+        y += r * sin(phi)
+        relays.append(
+            Node(np.array([x, y]), NodeCategory.relay)
+        )
+
+    sensors = []
+    n_sensor_per_relay = 10
+    r_max = 80
+    for relay in relays:
+        for _ in range(n_sensor_per_relay):
+            r = r_max * rand()
+            theta = 2 * pi * rand()
+            x = relay.position[0] + r * cos(theta)
+            y = relay.position[1] + r * sin(theta)
+            sensors.append(
+                Node(np.array([x, y]), NodeCategory.sensor)
+            )
+
+    router = LEACH(sink, relays + sensors, n_cluster=n_relay)
+    router.initialize()
+    router.execute()
+    print(f"cluster heads: {len(router.clusters)}")
+    print(router.route)
+    router.plot()
+    print("")
 
 
 def main():
@@ -287,4 +423,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    test_leach()

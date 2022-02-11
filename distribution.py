@@ -37,3 +37,13 @@ def nodes_on_power_line_naive() -> tuple[Node, list[Node]]:
                 Node(np.array([x, y]), NodeCategory.sensor)
             )
     return sink, relays + sensors
+
+
+def uniform_in_square(side_len: float, n_sensor: int) -> tuple[Node, list[Node]]:
+    sink_position = [0, 0]
+    sink = Node(np.array(sink_position), NodeCategory.sink)
+
+    sensors = [
+        Node(np.array([rand() * side_len, rand() * side_len]), NodeCategory.sensor) for _ in range(n_sensor)
+    ]
+    return sink, sensors

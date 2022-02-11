@@ -342,47 +342,6 @@ class APTEEN(Router):
         pass
 
 
-def test_leach():
-    sink = Node(np.array([0, 0]), NodeCategory.sink)
-    interval = 100
-    d_max = 10
-    phi_max = pi / 10
-    n_relay = 5
-    relays = []
-    x = 0
-    y = 0
-    for _ in range(n_relay):
-        d = d_max * rand()
-        phi = phi_max * rand() - phi_max / 2
-        r = interval + d
-        x += r * cos(phi)
-        y += r * sin(phi)
-        relays.append(
-            Node(np.array([x, y]), NodeCategory.relay)
-        )
-
-    sensors = []
-    n_sensor_per_relay = 10
-    r_max = 80
-    for relay in relays:
-        for _ in range(n_sensor_per_relay):
-            r = r_max * rand()
-            theta = 2 * pi * rand()
-            x = relay.position[0] + r * cos(theta)
-            y = relay.position[1] + r * sin(theta)
-            sensors.append(
-                Node(np.array([x, y]), NodeCategory.sensor)
-            )
-
-    router = LEACH(sink, relays + sensors, n_cluster=n_relay)
-    router.initialize()
-    router.execute()
-    print(f"cluster heads: {len(router.clusters)}")
-    print(router.route)
-    router.plot()
-    print("")
-
-
 def main():
     sink = Node(np.array([0, 0]), NodeCategory.sink)
     interval = 100
@@ -423,4 +382,4 @@ def main():
 
 
 if __name__ == "__main__":
-    test_leach()
+    main()

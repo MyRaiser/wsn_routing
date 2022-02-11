@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from enum import Enum
 from typing import Optional, Callable, Any
+from collections import defaultdict
 from collections.abc import Iterable
 from abc import ABCMeta, abstractmethod
+from itertools import combinations
 
 
 def distance(p1: np.array, p2: np.array) -> float:
@@ -34,31 +36,46 @@ class NodeCategory(Enum):
 
 class Node:
     # constants
-    e0_tx = 1
-    e0_rx = 1
+    e0_tx = 50e-9  # J
+    e0_rx = 50e-9
+    energy_max = 0.5
 
-    epsilon_fs = 1  # amplifier coefficient in free space model
-    epsilon_mp = 1  # amplifier coefficient in multi-path model
+    epsilon_fs = 10e-12  # amplifier coefficient in free space model
+    epsilon_mp = 0.0013e-12  # amplifier coefficient in multi-path model
     dist_threshold = sqrt(epsilon_fs / epsilon_mp)
-
-    energy_max = 100
-
-    SIZE_CONTROL = 32
-    SIZE_DATA = 1000
 
     def __init__(self, position: np.array, category: NodeCategory):
         self.position = position
         assert isinstance(category, NodeCategory)
         self.category = category
-        self.energy = Node.energy_max
+        if category == NodeCategory.sink:
+            self.energy = float("inf")
+        else:
+            self.energy = Node.energy_max
 
-    def transmit(self, size: int, target: Node):
-        """transmission happens once"""
-        dist = distance(self.position, target.position)
-        e_tx = self.energy_tx(size, dist)
-        e_rx = target.energy_rx(size)
-        self.energy -= e_tx
-        target.energy -= e_rx
+    def broadcast(self, size: int, dist: float) -> bool:
+        if self.is_alive():
+            self.energy -= self.energy_tx(size, dist)
+            return True
+        return False
+
+    def singlecast(self, size: int, target: Node) -> bool:
+        """transmit several bits"""
+        if self.is_alive():
+            dist = distance(self.position, target.position)
+            self.energy -= self.energy_tx(size, dist)
+            if target.is_alive():
+                target.energy -= target.energy_rx(size)
+                return True
+            return False
+        return False
+
+    def recv_broadcast(self, size: int) -> bool:
+        """receive several bits from broadcast"""
+        if self.is_alive():
+            self.energy -= self.energy_rx(size)
+            return True
+        return False
 
     def energy_tx(self, size: int, dist: float) -> float:
         if dist <= self.dist_threshold:
@@ -70,6 +87,9 @@ class Node:
 
     def energy_rx(self, size: int) -> float:
         return size * self.e0_rx
+
+    def is_alive(self) -> bool:
+        return self.energy > 0.001
 
 
 class Router(metaclass=ABCMeta):
@@ -127,6 +147,10 @@ class Router(metaclass=ABCMeta):
 
     def set_route(self, src: Node, dst: Node):
         self.route[self.index(src)] = self.index(dst)
+
+    @property
+    def nodes_alive(self) -> list[Node]:
+        return [node for node in self.non_sinks if node.is_alive()]
 
     @abstractmethod
     def initialize(self):
@@ -286,45 +310,95 @@ class LEACH(Router):
         self.n_cluster = n_cluster
         self.round = 0
         self.clusters: dict[Node, set[Node]] = dict()
+        # number of rounds not as a cluster head, G in the paper
+        self.rounds_non_head: dict[Node, int] = defaultdict(int)
         self.route_feature_op = lambda n: n in self.clusters
+        # size of message
+        self.size_control = 32
+        self.size_data = 4096
+
+        self.energy_agg = 5e-9  # aggregation
+        self.agg_rate = 0.6
+
+        # max distance between two nodes
+        self.max_dist = max(
+            distance(n1.position, n2.position) for n1, n2 in combinations(self.nodes, 2)
+        )
+
+    @property
+    def non_head_protection(self) -> int:
+        p = self.n_cluster / len(self.non_sinks)
+        r = self.round
+        return r % int(1 / p)
 
     def threshold(self, node: Node):
-        if node in self.clusters:
-            # if is a cluster head of last round
+        if self.rounds_non_head[node] < self.non_head_protection:
             return 0
         else:
             p = self.n_cluster / len(self.non_sinks)
             r = self.round
             return p / (1 - p * (r % int(1 / p)))
 
-    def set_up_phase(self):
+    def clustering(self) -> dict:
         # cluster head selection
         new_clusters = dict()
-        non_heads = set()
-        for node in filter(lambda n: n.energy > 0, self.non_sinks):
+        new_non_heads = set()
+        for node in self.nodes_alive:
             T = self.threshold(node)
             t = rand()
             if t < T:
                 # be selected as cluster head
                 new_clusters[node] = set()
+                self.rounds_non_head[node] = 0
                 self.set_route(node, self.sink)
                 # broadcast announcement
+                node.broadcast(self.size_control, self.max_dist)
             else:
-                non_heads.add(node)
+                new_non_heads.add(node)
+                self.rounds_non_head[node] += 1
 
         if new_clusters:
-            for node in non_heads:
+            for node in new_non_heads:
+                # receive all broadcast
+                node.recv_broadcast(self.size_control * len(new_clusters))
+                # select nearest cluster head to join
                 nearest = argmin_(
                     lambda x: distance(node.position, x.position), new_clusters
                 )
                 # send join-request
+                node.singlecast(self.size_control, nearest)
                 new_clusters[nearest].add(node)
                 self.set_route(node, nearest)
+        return new_clusters
 
-        self.clusters = new_clusters
+    def set_up_phase(self):
+        while True:
+            # clustering until at least one cluster is generated.
+            new_clusters = self.clustering()
+            if new_clusters:
+                self.clusters = new_clusters
+                self.round += 1
+                return
 
     def steady_state_phase(self):
-        pass
+        if not self.clusters:
+            return
+
+        for head, members in self.clusters.items():
+            if not members:
+                head.singlecast(self.size_data, self.sink)
+            else:
+                size_total = self.size_data
+                for node in members:
+                    # cluster members send data
+                    node.singlecast(self.size_data, head)
+                    size_total += self.size_data
+                # data aggregation
+                head.singlecast(self.aggregation(head, size_total), self.sink)
+
+    def aggregation(self, node: Node, size: int) -> int:
+        node.energy -= size * self.energy_agg
+        return int(self.agg_rate * size)
 
     def initialize(self):
         pass
@@ -332,6 +406,7 @@ class LEACH(Router):
     def execute(self):
         self.set_up_phase()
         self.steady_state_phase()
+
 
 
 class APTEEN(Router):

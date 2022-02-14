@@ -8,9 +8,9 @@ def test_leach():
     leach = LEACH(*uniform_in_square(100, 100), n_cluster=5)
     leach.initialize()
     n_alive = []
-    while len(leach.nodes_alive) > 0:
+    while len(leach.alive_non_sinks) > 0:
         leach.execute()
-        n = len(leach.nodes_alive)
+        n = len(leach.alive_non_sinks)
         n_alive.append(n)
 
         # print(

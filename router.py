@@ -139,6 +139,9 @@ class Router(metaclass=ABCMeta):
             ) / 10
         )
 
+    def destination(self, node: Node) -> Node:
+        return self.node(self.route[self.index(node)])
+
     def node(self, i: int) -> Node:
         return self.nodes[i]
 
@@ -149,7 +152,7 @@ class Router(metaclass=ABCMeta):
         self.route[self.index(src)] = self.index(dst)
 
     @property
-    def nodes_alive(self) -> list[Node]:
+    def alive_non_sinks(self) -> list[Node]:
         return [node for node in self.non_sinks if node.is_alive()]
 
     @abstractmethod
@@ -304,81 +307,78 @@ class LEACH(Router):
             sink: Node,
             non_sinks: Iterable[Node],
             *,
-            n_cluster: int
+            n_cluster: int,
+            size_control: int = 32,
+            size_data: int = 4096,
+            energy_agg: float = 5e-9,
+            agg_rate: float = 0.6
     ):
         super().__init__(sink, non_sinks)
+        # super parameters
         self.n_cluster = n_cluster
-        self.round = 0
-        self.clusters: dict[Node, set[Node]] = dict()
-        # number of rounds not as a cluster head, G in the paper
-        self.rounds_non_head: dict[Node, int] = defaultdict(int)
-        self.route_feature_op = lambda n: n in self.clusters
-        # size of message
-        self.size_control = 32
-        self.size_data = 4096
+        self.size_control = size_control  # size of different messages
+        self.size_data = size_data
+        self.energy_agg = energy_agg  # energy of aggregation per bit
+        self.agg_rate = agg_rate
 
-        self.energy_agg = 5e-9  # aggregation
-        self.agg_rate = 0.6
-
+        # constants
         # max distance between two nodes
         self.max_dist = max(
             distance(n1.position, n2.position) for n1, n2 in combinations(self.nodes, 2)
         )
+        self.route_feature_op = lambda n: n in self.clusters
 
-    @property
-    def non_head_protection(self) -> int:
-        p = self.n_cluster / len(self.non_sinks)
-        r = self.round
-        return r % int(1 / p)
+        # private properties
+        self.round = 0
+        self.clusters: dict[Node, set[Node]] = dict()
+        # number of rounds not as a cluster head
+        # G in the paper
+        self.rounds_non_head: dict[Node, int] = defaultdict(int)
 
-    def threshold(self, node: Node):
-        if self.rounds_non_head[node] < self.non_head_protection:
-            return 0
-        else:
-            p = self.n_cluster / len(self.non_sinks)
-            r = self.round
-            return p / (1 - p * (r % int(1 / p)))
+    def initialize(self):
+        pass
 
-    def clustering(self) -> dict:
-        # cluster head selection
-        new_clusters = dict()
-        new_non_heads = set()
-        for node in self.nodes_alive:
+    def execute(self):
+        self.set_up_phase()
+        self.steady_state_phase()
+
+    def set_up_phase(self):
+        # clustering until at least one cluster is generated.
+        while True:
+            self.cluster_head_select()
+            if self.clusters:
+                self.cluster_member_join()
+                break
+
+    def cluster_head_select(self):
+        self.clusters = {}
+        for node in self.alive_non_sinks:
             T = self.threshold(node)
             t = rand()
             if t < T:
                 # be selected as cluster head
-                new_clusters[node] = set()
-                self.rounds_non_head[node] = 0
-                self.set_route(node, self.sink)
                 # broadcast announcement
                 node.broadcast(self.size_control, self.max_dist)
+                if node.is_alive():
+                    self.clusters[node] = set()
+                    self.set_route(node, self.sink)
+                    self.rounds_non_head[node] = 0
             else:
-                new_non_heads.add(node)
                 self.rounds_non_head[node] += 1
+        self.round += 1
 
-        if new_clusters:
-            for node in new_non_heads:
-                # receive all broadcast
-                node.recv_broadcast(self.size_control * len(new_clusters))
-                # select nearest cluster head to join
-                nearest = argmin_(
-                    lambda x: distance(node.position, x.position), new_clusters
-                )
-                # send join-request
-                node.singlecast(self.size_control, nearest)
-                new_clusters[nearest].add(node)
-                self.set_route(node, nearest)
-        return new_clusters
-
-    def set_up_phase(self):
-        while True:
-            # clustering until at least one cluster is generated.
-            new_clusters = self.clustering()
-            if new_clusters:
-                self.clusters = new_clusters
-                self.round += 1
-                return
+    def cluster_member_join(self):
+        """members join clusters"""
+        for node in filter(lambda n: n not in self.clusters, self.alive_non_sinks):
+            node.recv_broadcast(self.size_control * len(self.clusters))
+            # select nearest cluster head to join
+            nearest = argmin_(
+                lambda x: distance(node.position, x.position), self.clusters
+            )
+            # send join-request
+            node.singlecast(self.size_control, nearest)
+            self.clusters[nearest].add(node)
+            self.set_route(node, nearest)
 
     def steady_state_phase(self):
         if not self.clusters:
@@ -396,20 +396,35 @@ class LEACH(Router):
                 # data aggregation
                 head.singlecast(self.aggregation(head, size_total), self.sink)
 
+    @property
+    def non_head_protection(self) -> int:
+        p = self.n_cluster / len(self.non_sinks)
+        r = self.round
+        return r % int(1 / p)
+
+    def threshold(self, node: Node):
+        if self.rounds_non_head[node] < self.non_head_protection:
+            return 0
+        else:
+            p = self.n_cluster / len(self.non_sinks)
+            r = self.round
+            return p / (1 - p * (r % int(1 / p)))
+
     def aggregation(self, node: Node, size: int) -> int:
         node.energy -= size * self.energy_agg
         return int(self.agg_rate * size)
 
-    def initialize(self):
-        pass
 
-    def execute(self):
-        self.set_up_phase()
-        self.steady_state_phase()
+class APTEEN(LEACH):
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            **kwargs
+    ):
+        super().__init__(
+            sink, non_sinks, **kwargs)
 
-
-
-class APTEEN(Router):
     def initialize(self):
         pass
 

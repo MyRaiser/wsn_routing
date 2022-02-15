@@ -6,7 +6,9 @@ from typing import Iterable
 
 from numpy.random import rand
 
-from router.common import Router, Node, distance, argmin_
+from router.router import Router
+from router.common import distance, argmin_
+from router import Node
 
 
 class LEACH(Router):

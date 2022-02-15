@@ -140,9 +140,10 @@ class Router(metaclass=ABCMeta):
 
     def plot_routes(self):
         for i, src in enumerate(self.nodes):
-            dst = self.node(self.route[i])
-            ls, c = self.get_route_style(src)
-            self.plotter.plot_line(src.position, dst.position, linestyle=ls, color=c)
+            if src.is_alive():
+                dst = self.node(self.route[i])
+                ls, c = self.get_route_style(src)
+                self.plotter.plot_line(src.position, dst.position, linestyle=ls, color=c)
 
     def show(self):
         self.plotter.show()

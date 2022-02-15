@@ -1,6 +1,7 @@
 from __future__ import annotations  # to allow forward references in type hint
 
 from enum import Enum
+from functools import cache
 from typing import Optional, Callable, Any
 from collections.abc import Iterable
 from abc import ABCMeta, abstractmethod
@@ -118,7 +119,7 @@ class Router(metaclass=ABCMeta):
         # plotting
         # only support 2-d plot
 
-        # cache for styles
+        # buffer for styles
         self.__node_styles: dict[Any, str] = dict()
         self.__route_styles: dict[Any, tuple[str, str]] = dict()
         # function to get feature of a node, which distinguish it from other nodes.
@@ -129,15 +130,7 @@ class Router(metaclass=ABCMeta):
         self.position_max = np.max(positions, axis=0)
         self.position_min = np.min(positions, axis=0)
 
-        self.plotter = Plotter2D(
-            self.position_min[0],
-            self.position_min[1],
-            self.position_max[0],
-            self.position_max[1],
-            max(
-                self.position_max[axis] - self.position_min[axis] for axis in (0, 1)
-            ) / 10
-        )
+        self.plotter = None
 
     def destination(self, node: Node) -> Node:
         return self.node(self.route[self.index(node)])
@@ -150,6 +143,11 @@ class Router(metaclass=ABCMeta):
 
     def set_route(self, src: Node, dst: Node):
         self.route[self.index(src)] = self.index(dst)
+
+    @staticmethod
+    @cache
+    def distance(src: Node, dst: Node) -> float:
+        return distance(src.position, dst.position)
 
     @property
     def alive_non_sinks(self) -> list[Node]:
@@ -165,9 +163,9 @@ class Router(metaclass=ABCMeta):
         pass
 
     @staticmethod
-    def __set_style(cache: dict, *styles: tuple[Any, Any]):
+    def __set_style(buffer: dict, *styles: tuple[Any, Any]):
         for feature, style in styles:
-            cache[feature] = style
+            buffer[feature] = style
 
     def set_node_style(self, *styles: tuple[Any, str]):
         self.__set_style(self.__node_styles, *styles)
@@ -177,22 +175,22 @@ class Router(metaclass=ABCMeta):
 
     @staticmethod
     def __get_style(
-            cache: dict,
+            buffer: dict,
             feature_op: Callable[[Node], Any],
             default_styles: list[Any],
             exception_style: Any,
             node: Node,
     ):
         feature = feature_op(node)
-        if feature in cache:
-            return cache[feature]
+        if feature in buffer:
+            return buffer[feature]
         # automatically allocate a style in default styles, which has not been used
         for style in default_styles:
-            if style not in cache.values():
-                cache[feature] = style
+            if style not in buffer.values():
+                buffer[feature] = style
                 return style
         # if style is not specified, or default styles have been used up.
-        cache[feature] = exception_style
+        buffer[feature] = exception_style
         return exception_style
 
     def get_node_style(self, node: Node) -> str:
@@ -228,6 +226,15 @@ class Router(metaclass=ABCMeta):
         self.plotter.show()
 
     def plot(self):
+        self.plotter = Plotter2D(
+            self.position_min[0],
+            self.position_min[1],
+            self.position_max[0],
+            self.position_max[1],
+            max(
+                self.position_max[axis] - self.position_min[axis] for axis in (0, 1)
+            ) / 10
+        )
         self.plot_nodes()
         self.plot_routes()
         self.show()

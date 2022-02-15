@@ -52,7 +52,7 @@ class LEACH(Router):
 
     def set_up_phase(self):
         # clustering until at least one cluster is generated.
-        while True:
+        while len(self.alive_non_sinks) > 0:
             self.cluster_head_select()
             if self.clusters:
                 self.cluster_member_join()
@@ -121,3 +121,84 @@ class LEACH(Router):
     def aggregation(self, node: Node, size: int) -> int:
         node.energy -= size * self.energy_agg
         return int(self.agg_rate * size)
+    
+    def is_cluster_head(self, node: Node) -> bool:
+        return node in self.clusters
+
+
+class LEACHPrim(LEACH):
+    """
+    allow multi-hop in intra-cluster transmission
+    and single-hop in inter-cluster transmission
+    Using Prim algorithm to build route tree of cluster heads
+    """
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            **kwargs
+    ):
+        super().__init__(
+            sink, non_sinks, **kwargs)
+        self.sink_cluster = set()  # view sink as a special cluster head
+
+    def set_up_phase(self):
+        while True:
+            self.cluster_head_select()
+            if self.clusters:
+                self.cluster_head_organize()
+                self.cluster_member_join()
+                break
+
+    def cluster_head_organize(self):
+        """use Prim algorithm to form a tree of cluster heads"""
+        visited = set()
+        visited.add(self.sink)
+        candidates = set(list(self.clusters.keys()))
+        self.sink_cluster = set()
+
+        while candidates:
+            min_src, min_dst = min(
+                [
+                    min(
+                        [(src, dst) for src in candidates],
+                        key=lambda x: self.distance(x[0], x[1]),
+                    ) for dst in visited
+                ],
+                key=lambda x: self.distance(x[0], x[1]),
+            )
+            visited.add(min_src)
+            candidates.remove(min_src)
+            self.set_route(min_src, min_dst)
+            if min_dst == self.sink:
+                self.sink_cluster.add(min_src)
+            else:
+                self.clusters[min_dst].add(min_src)
+
+        # message exchange
+        # organization of heads is done by sink
+        for head in self.clusters:
+            head.singlecast(self.size_control, self.sink)
+            head.recv_broadcast(self.size_control)
+
+    def steady_state_phase(self):
+        self.cluster_run(self.sink)
+
+    def cluster_run(self, head: Node) -> int:
+        assert self.is_cluster_head(head) or head == self.sink
+
+        if head == self.sink:
+            members = self.sink_cluster
+        else:
+            members = self.clusters[head]
+        size_total = self.size_data
+        for member in members:
+            if self.is_cluster_head(member):
+                size_sub = self.cluster_run(member)
+                member.singlecast(size_sub, head)
+                size_total += size_sub
+            else:
+                # cluster member send to head
+                member.singlecast(self.size_data, head)
+                size_total += self.size_data
+        return self.aggregation(head, size_total)

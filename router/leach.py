@@ -191,14 +191,15 @@ class LEACHPrim(LEACH):
             members = self.sink_cluster
         else:
             members = self.clusters[head]
-        size_total = self.size_data
+        size_agg = 0
+        size_not_agg = self.size_data
         for member in members:
             if self.is_cluster_head(member):
                 size_sub = self.cluster_run(member)
                 member.singlecast(size_sub, head)
-                size_total += size_sub
+                size_agg += size_sub
             else:
                 # cluster member send to head
                 member.singlecast(self.size_data, head)
-                size_total += self.size_data
-        return self.aggregation(head, size_total)
+                size_not_agg += self.size_data
+        return self.aggregation(head, size_not_agg) + size_agg

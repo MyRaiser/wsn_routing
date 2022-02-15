@@ -1,49 +1,68 @@
+from typing import Callable
+
 import numpy as np
 from numpy import pi, cos, sin
 from numpy.random import rand
+
 from router import Node, NodeCategory
 
 
-def nodes_on_power_line_naive() -> tuple[Node, list[Node]]:
-    sink_position = [0, 0]
-    interval = 100
-    d_max = 10
-    phi_max = pi / 10
-    n_relay = 5
-    n_sensor_per_relay = 10
-    r_max = 80
+Position = tuple[float, float]
+Distribution = list[Position]
+
+
+def simple_loader(
+        position_sink: Position,
+        distribution: Distribution
+) -> tuple[Node, list[Node]]:
+    sink = Node(np.array(position_sink), NodeCategory.sink)
+    sensors = [
+        Node(np.array(pos), NodeCategory.sensor) for pos in distribution
+    ]
+    return sink, sensors
+
+
+def power_line_naive(
+        n_relay: int,
+        d_relay: float,
+        d_jitter_max: float,
+        phi_max: float,
+        n_sensors_per_relay: int,
+        r_max: float,
+        sink: Position,
+) -> Distribution:
+    # sink_position = [0, 0]
+    # interval = 100
+    # d_max = 10
+    # phi_max = pi / 10
+    # n_relay = 5
+    # n_sensor_per_relay = 10
+    # r_max = 80
 
     relays = []
-    x, y = sink_position
-    sink = Node(np.array(sink_position), NodeCategory.sink)
+    x, y = sink
     for _ in range(n_relay):
-        d = d_max * rand()
-        phi = phi_max * rand() - phi_max / 2
-        r = interval + d
-        x += r * cos(phi)
-        y += r * sin(phi)
-        relays.append(
-            Node(np.array([x, y]), NodeCategory.relay)
-        )
+        d = d_relay + d_jitter_max * rand()
+        phi = phi_max * (2 * rand() - 1)
+        x += d * cos(phi)
+        y += d * sin(phi)
+        relays.append((x, y))
 
     sensors = []
     for relay in relays:
-        for _ in range(n_sensor_per_relay):
+        for _ in range(n_sensors_per_relay):
             r = r_max * rand()
             theta = 2 * pi * rand()
-            x = relay.position[0] + r * cos(theta)
-            y = relay.position[1] + r * sin(theta)
-            sensors.append(
-                Node(np.array([x, y]), NodeCategory.sensor)
-            )
-    return sink, relays + sensors
+            rx, ry = relay
+            x = rx + r * cos(theta)
+            y = ry + r * sin(theta)
+            sensors.append((x, y))
+    return relays + sensors
 
 
-def uniform_in_square(side_len: float, n_sensor: int) -> tuple[Node, list[Node]]:
-    sink_position = [0, 0]
-    sink = Node(np.array(sink_position), NodeCategory.sink)
-
+def uniform_in_square(side_len: float, n_sensor: int, sink: Position) -> Distribution:
+    sx, sy = sink
     sensors = [
-        Node(np.array([rand() * side_len, rand() * side_len]), NodeCategory.sensor) for _ in range(n_sensor)
+        (sx + rand() * side_len, sy + rand() * side_len) for _ in range(n_sensor)
     ]
-    return sink, sensors
+    return sensors

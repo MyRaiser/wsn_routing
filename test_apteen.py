@@ -26,8 +26,7 @@ def test_apteen():
         # print(f"cluster heads: {len(apteen.clusters)}")
         # print(f"nodes alive: {n}")
         # print(apteen.route)
-        if n < 10:
-            apteen.plot()
+        apteen.plot()
     print("")
     rounds = list(range(len(n_alive)))
     plt.plot(rounds, n_alive)

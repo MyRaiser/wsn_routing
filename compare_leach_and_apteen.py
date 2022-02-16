@@ -6,8 +6,8 @@ from router import APTEEN, LEACH
 
 def main():
     sink = (0, 0)
-    distribution = uniform_in_square(150, 100, sink)
-    n_cluster = 5
+    distribution = uniform_in_square(300, 200, sink)
+    n_cluster = 10
 
     nodes_leach = simple_loader(sink, distribution)
     leach = LEACH(*nodes_leach, n_cluster=n_cluster)
@@ -26,6 +26,7 @@ def main():
     while (n := len(apteen.alive_non_sinks)) > 0:
         alive_apteen.append(n)
         apteen.execute()
+        # apteen.plot()
     print(alive_apteen)
 
     print("-" * 10)

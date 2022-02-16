@@ -145,7 +145,7 @@ class LEACHPrim(LEACH):
         self.sink_cluster = set()  # view sink as a special cluster head
 
     def set_up_phase(self):
-        while True:
+        while len(self.alive_non_sinks) > 0:
             self.cluster_head_select()
             if self.clusters:
                 self.cluster_head_organize()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 from numpy import sqrt
@@ -14,25 +15,39 @@ class NodeCategory(Enum):
     sensor = "sensor"
 
 
+# physical parameters
+epsilon_fs = 10e-12  # amplifier coefficient in free space model
+epsilon_mp = 0.0013e-12  # amplifier coefficient in multi-path model
+dist_threshold = sqrt(epsilon_fs / epsilon_mp)
+
+
 class Node:
     # constants
-    e0_tx = 50e-9  # J
-    e0_rx = 50e-9
-    energy_max = 0.5
+    default_e0_tx = 50e-9  # J
+    default_e0_rx = 50e-9
+    default_energy_max = 0.5
+    default_alive_threshold = 0.001
 
-    epsilon_fs = 10e-12  # amplifier coefficient in free space model
-    epsilon_mp = 0.0013e-12  # amplifier coefficient in multi-path model
-    dist_threshold = sqrt(epsilon_fs / epsilon_mp)
-
-    def __init__(self, position: np.array, category: NodeCategory):
+    def __init__(
+            self,
+            position: np.array,
+            category: NodeCategory,
+            *,
+            energy: Optional[float] = None
+    ):
         self.position = position
         assert isinstance(category, NodeCategory)
         self.category = category
-        if category == NodeCategory.sink:
-            self.energy = float("inf")
-        else:
-            self.energy = Node.energy_max
 
+        self.alive_threshold = Node.default_alive_threshold
+        if not energy:
+            self.energy = Node.default_energy_max
+        else:
+            self.energy = energy
+
+        self.e0_tx = Node.default_e0_tx
+        self.e0_rx = Node.default_e0_rx
+        
     def broadcast(self, size: int, dist: float) -> bool:
         if self.is_alive():
             self.energy -= self.energy_tx(size, dist)
@@ -58,15 +73,15 @@ class Node:
         return False
 
     def energy_tx(self, size: int, dist: float) -> float:
-        if dist <= self.dist_threshold:
+        if dist <= dist_threshold:
             # free space
-            return size * self.e0_tx + size * self.epsilon_fs * (dist ** 2)
+            return size * self.e0_tx + size * epsilon_fs * (dist ** 2)
         else:
             # multi-path
-            return size * self.e0_tx + size * self.epsilon_mp * (dist ** 4)
+            return size * self.e0_tx + size * epsilon_mp * (dist ** 4)
 
     def energy_rx(self, size: int) -> float:
         return size * self.e0_rx
 
     def is_alive(self) -> bool:
-        return self.energy > 0.001
+        return self.energy > self.alive_threshold

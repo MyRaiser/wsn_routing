@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Literal
 
 import numpy as np
 from numpy import pi, cos, sin
@@ -60,8 +60,31 @@ def power_line_naive(
     return relays + sensors
 
 
-def uniform_in_square(side_len: float, n_sensor: int, sink: Position) -> Distribution:
+RelativePosition = Literal["mid", "left-bottem", "left-top", "right-bottem", "right-top"]
+
+
+def uniform_in_square(
+        side_len: float,
+        n_sensor: int,
+        sink: Position,
+        sink_relative_position: RelativePosition = "mid"
+) -> Distribution:
+    match sink_relative_position:
+        case "left-bottem":
+            dx, dy = 0, 0
+        case "left-top":
+            dx, dy = 0, -side_len
+        case "right-bottem":
+            dx, dy = -side_len, 0
+        case "right-top":
+            dx, dy = -side_len, -side_len
+        case "mid":
+            dx, dy = -side_len / 2, -side_len / 2
+        case _:
+            raise Exception("Invalid relative position.")
     sx, sy = sink
+    sx += dx
+    sy += dy
     sensors = [
         (sx + rand() * side_len, sy + rand() * side_len) for _ in range(n_sensor)
     ]

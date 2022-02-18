@@ -89,3 +89,19 @@ def uniform_in_square(
         (sx + rand() * side_len, sy + rand() * side_len) for _ in range(n_sensor)
     ]
     return sensors
+
+
+def uniform_in_circle(
+        radius: float,
+        n_sensor: int,
+        sink: Position,
+) -> Distribution:
+    sx, sy = sink
+    sensors = []
+    for _ in range(n_sensor):
+        r = radius * rand()
+        theta = 2 * pi * rand()
+        x = sx + r * cos(theta)
+        y = sy + r * sin(theta)
+        sensors.append((x, y))
+    return sensors

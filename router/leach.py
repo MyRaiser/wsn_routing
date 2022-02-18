@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from abc import ABCMeta, abstractmethod
 from itertools import combinations
 from typing import Iterable
 
@@ -128,11 +129,10 @@ class LEACH(Router):
         return node in self.clusters
 
 
-class LEACHPrim(LEACH):
+class LEACHHierarchical(LEACH, metaclass=ABCMeta):
     """
     allow multi-hop in intra-cluster transmission
     and single-hop in inter-cluster transmission
-    Using Prim algorithm to build route tree of cluster heads
     """
     def __init__(
             self,
@@ -151,6 +151,45 @@ class LEACHPrim(LEACH):
                 self.cluster_head_organize()
                 self.cluster_member_join()
                 break
+
+    @abstractmethod
+    def cluster_head_organize(self):
+        pass
+
+    def steady_state_phase(self):
+        self.cluster_run(self.sink)
+
+    def cluster_run(self, head: Node) -> int:
+        assert self.is_cluster_head(head) or head == self.sink
+
+        if head == self.sink:
+            members = self.sink_cluster
+        else:
+            members = self.clusters[head]
+        size_agg = 0
+        size_not_agg = self.size_data
+        for member in members:
+            if self.is_cluster_head(member):
+                size_sub = self.cluster_run(member)
+                member.singlecast(size_sub, head)
+                size_agg += size_sub
+            else:
+                # cluster member send to head
+                member.singlecast(self.size_data, head)
+                size_not_agg += self.size_data
+        return self.aggregation(head, size_not_agg) + size_agg
+
+
+class LEACHPrim(LEACHHierarchical):
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            **kwargs
+    ):
+        super().__init__(
+            sink, non_sinks, **kwargs
+        )
 
     def cluster_head_organize(self):
         """use Prim algorithm to form a tree of cluster heads"""
@@ -182,26 +221,3 @@ class LEACHPrim(LEACH):
         for head in self.clusters:
             head.singlecast(self.size_control, self.sink)
             head.recv_broadcast(self.size_control)
-
-    def steady_state_phase(self):
-        self.cluster_run(self.sink)
-
-    def cluster_run(self, head: Node) -> int:
-        assert self.is_cluster_head(head) or head == self.sink
-
-        if head == self.sink:
-            members = self.sink_cluster
-        else:
-            members = self.clusters[head]
-        size_agg = 0
-        size_not_agg = self.size_data
-        for member in members:
-            if self.is_cluster_head(member):
-                size_sub = self.cluster_run(member)
-                member.singlecast(size_sub, head)
-                size_agg += size_sub
-            else:
-                # cluster member send to head
-                member.singlecast(self.size_data, head)
-                size_not_agg += self.size_data
-        return self.aggregation(head, size_not_agg) + size_agg

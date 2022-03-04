@@ -6,11 +6,17 @@ from . import Target
 
 def logistic_map(target: Target, n_pop: int, eta: float) -> tuple[np.ndarray, np.ndarray]:
     """use logistic chaos map to generate initial population"""
-    func, _, lb, ub = target
+    func, dim, lb, ub = target
     # generate logistic chaos values
-    while (x := rand()) in {0.0, 0.25, 0.5, 0.75, 1.0}:
-        continue
+    x0 = []
+    for _ in range(dim):
+        while (t := rand()) in {0.0, 0.25, 0.5, 0.75, 1.0}:
+            continue
+        x0.append(t)
+    x0 = np.array(x0)
+
     chaos = []
+    x = x0
     for i in range(n_pop):
         chaos.append(x)
         x = eta * x * (1 - x)

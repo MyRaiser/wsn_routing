@@ -2,17 +2,38 @@ from __future__ import annotations
 
 from collections import defaultdict
 from abc import ABCMeta, abstractmethod
-from itertools import combinations
+from itertools import combinations, chain
 from typing import Iterable
 
 from numpy.random import rand
 
 from router.router import Router
-from router.common import distance, argmin_
 from router import Node
 
 
-class LEACH(Router):
+class ClusterBased(metaclass=ABCMeta):
+    @abstractmethod
+    def clear_clusters(self):
+        pass
+
+    @abstractmethod
+    def add_cluster_head(self, head: Node):
+        pass
+
+    @abstractmethod
+    def add_cluster_member(self, head: Node, node: Node):
+        pass
+
+    @abstractmethod
+    def get_cluster_heads(self) -> Iterable[Node]:
+        pass
+
+    @abstractmethod
+    def get_cluster_members(self, head: Node) -> Iterable[Node]:
+        pass
+
+
+class LEACH(Router, ClusterBased):
     def __init__(
             self,
             sink: Node,
@@ -35,7 +56,7 @@ class LEACH(Router):
         # constants
         # max distance between two nodes
         self.max_dist = max(
-            distance(n1.position, n2.position) for n1, n2 in combinations(self.nodes, 2)
+            self.distance(n1, n2) for n1, n2 in combinations(self.nodes, 2)
         )
         self.route_feature_op = lambda n: n in self.clusters
 
@@ -45,6 +66,26 @@ class LEACH(Router):
         # number of rounds not as a cluster head
         # G in the paper
         self.rounds_non_head: dict[Node, int] = defaultdict(int)
+
+    def clear_clusters(self):
+        self.clusters = dict()
+        self.clear_route()
+
+    def add_cluster_head(self, head: Node):
+        assert head not in self.clusters
+        self.clusters[head] = set()
+        self.set_route(head, self.sink)
+
+    def add_cluster_member(self, head: Node, node: Node):
+        assert head in self.clusters
+        self.clusters[head].add(node)
+        self.set_route(node, head)
+
+    def get_cluster_heads(self):
+        return iter(self.clusters)
+
+    def get_cluster_members(self, head: Node):
+        return self.clusters[head]
 
     def initialize(self):
         pass
@@ -62,7 +103,7 @@ class LEACH(Router):
                 break
 
     def cluster_head_select(self):
-        self.clusters = {}
+        self.clear_clusters()
         for node in self.alive_non_sinks:
             T = self.threshold(node)
             t = rand()
@@ -71,8 +112,7 @@ class LEACH(Router):
                 # broadcast announcement
                 node.broadcast(self.size_control, self.max_dist)
                 if node.is_alive():
-                    self.clusters[node] = set()
-                    self.set_route(node, self.sink)
+                    self.add_cluster_head(node)
                     self.rounds_non_head[node] = 0
             else:
                 self.rounds_non_head[node] += 1
@@ -83,19 +123,20 @@ class LEACH(Router):
         for node in filter(lambda n: n not in self.clusters, self.alive_non_sinks):
             node.recv_broadcast(self.size_control * len(self.clusters))
             # select nearest cluster head to join
-            nearest = argmin_(
-                lambda x: distance(node.position, x.position), self.clusters
+            nearest = min(
+                self.get_cluster_heads(),
+                key=lambda x: self.distance(node, x),
             )
             # send join-request
             node.singlecast(self.size_control, nearest)
-            self.clusters[nearest].add(node)
-            self.set_route(node, nearest)
+            self.add_cluster_member(nearest, node)
 
     def steady_state_phase(self):
         if not self.clusters:
             return
 
-        for head, members in self.clusters.items():
+        for head in self.get_cluster_heads():
+            members = self.get_cluster_members(head)
             if not members:
                 head.singlecast(self.size_data, self.sink)
             else:
@@ -129,10 +170,10 @@ class LEACH(Router):
         return node in self.clusters
 
 
-class LEACHHierarchical(LEACH, metaclass=ABCMeta):
+class LEACHHierarchical(LEACH):
     """
-    allow multi-hop in intra-cluster transmission
-    and single-hop in inter-cluster transmission
+    use multi-hop in intra-cluster transmission  and single-hop in inter-cluster transmission.
+    allow sink as a cluster head.
     """
     def __init__(
             self,
@@ -144,28 +185,39 @@ class LEACHHierarchical(LEACH, metaclass=ABCMeta):
             sink, non_sinks, **kwargs)
         self.sink_cluster = set()  # view sink as a special cluster head
 
-    def set_up_phase(self):
-        while len(self.alive_non_sinks) > 0:
-            self.cluster_head_select()
-            if self.clusters:
-                self.cluster_head_organize()
-                self.cluster_member_join()
-                break
+    def clear_clusters(self):
+        self.clusters = dict()
+        self.sink_cluster = set()
+        self.clear_route()
 
-    @abstractmethod
-    def cluster_head_organize(self):
-        pass
+    def add_cluster_head(self, head: Node):
+        if head != self.sink and head not in self.clusters:
+            self.clusters[head] = set()
+        # warning: route of cluster head is undetermined!
+
+    def add_cluster_member(self, head: Node, node: Node):
+        assert head in self.clusters or head == self.sink
+        if head == self.sink:
+            self.sink_cluster.add(node)
+        else:
+            self.clusters[head].add(node)
+        self.set_route(node, head)
+
+    def get_cluster_heads(self):
+        return chain(iter(self.clusters), [self.sink])
+
+    def get_cluster_members(self, head: Node):
+        assert head in self.clusters or head == self.sink
+        if head == self.sink:
+            return self.sink_cluster
+        else:
+            return self.clusters[head]
 
     def steady_state_phase(self):
         self.cluster_run(self.sink)
 
     def cluster_run(self, head: Node) -> int:
-        assert self.is_cluster_head(head) or head == self.sink
-
-        if head == self.sink:
-            members = self.sink_cluster
-        else:
-            members = self.clusters[head]
+        members = self.get_cluster_members(head)
         size_agg = 0
         size_not_agg = self.size_data
         for member in members:
@@ -190,6 +242,14 @@ class LEACHPrim(LEACHHierarchical):
         super().__init__(
             sink, non_sinks, **kwargs
         )
+
+    def set_up_phase(self):
+        while len(self.alive_non_sinks) > 0:
+            self.cluster_head_select()
+            if self.clusters:
+                self.cluster_head_organize()
+                self.cluster_member_join()
+                break
 
     def cluster_head_organize(self):
         """use Prim algorithm to form a tree of cluster heads"""

@@ -47,7 +47,7 @@ class Node:
 
         self.e0_tx = Node.default_e0_tx
         self.e0_rx = Node.default_e0_rx
-        
+
     def broadcast(self, size: int, dist: float) -> bool:
         if self.is_alive():
             self.energy -= self.energy_tx(size, dist)

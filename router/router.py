@@ -66,6 +66,11 @@ class Router(metaclass=ABCMeta):
     def set_route(self, src: Node, dst: Node):
         self.route[self.index(src)] = self.index(dst)
 
+    def clear_route(self):
+        self.route = np.array(
+            [0 for _ in range(len(self.nodes))]
+        )
+
     @staticmethod
     @cache
     def distance(src: Node, dst: Node) -> float:

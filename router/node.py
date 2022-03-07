@@ -26,7 +26,7 @@ class Node:
     default_e0_tx = 50e-9  # J
     default_e0_rx = 50e-9
     default_energy_max = 0.5
-    default_alive_threshold = 0.001
+    default_alive_threshold = 0.01
 
     def __init__(
             self,

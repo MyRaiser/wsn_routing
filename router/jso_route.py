@@ -2,6 +2,7 @@
 from typing import Iterable
 
 import numpy as np
+from math import ceil
 
 from .node import Node
 from .leach import LEACHHierarchical
@@ -29,57 +30,52 @@ class JSORouter(LEACHHierarchical):
         }
         self.jso_target = None
 
-    def is_valid_route(self, sources: list[Node], routes: dict[Node, Node]) -> bool:
-        if self.sink not in (routes[src] for src in sources):
-            return False
-
-        def search(src: Node, visited: set) -> bool:
-            visited.add(src)
-
-            dst = routes[src]
-            if dst == self.sink:
-                ret = True
-            elif dst in visited:
-                ret = False
-            else:
-                ret = search(dst, visited)
-            return ret
-        # print("---")
-        for src in sources:
-            cache = set()
-            valid = search(src, cache)
-            # print(f"node {self.index(src)}: {valid}")
-            if not valid:
-                return False
-        return True
-
     def get_jso_target(self, k: int, candidates: list[Node]):
         # idt is [ch_index] + [ch_route]
         # ch_index in [1, n) except sink node 0
         # ch_route in [0, k + 1) where k means route to sink
         n = len(candidates)
+        # k = ceil(k / (len(self.nodes) - 1) * n)
 
         def f(heads: list[Node]) -> float:
             """judge the selection of cluster heads"""
+            if len(heads) != len(set(heads)):
+                return float("inf")
             e_mean = np.mean([node.energy for node in self.alive_non_sinks])
             e = np.mean([node.energy for node in heads])
-            return e / e_mean
+            return 1 / (e / e_mean)
 
-        def g(heads, routes: dict[Node, Node]) -> float:
-            pass
+        def g(heads: list[Node], routes: dict[Node, Node]) -> float:
+            visited: dict[Node, None | float] = dict()
+
+            def discover(src: Node) -> float:
+                if src in visited:
+                    if visited[src] is None:
+                        return float("inf")
+                    else:
+                        return visited[src]
+                if src not in routes:  # end of route
+                    if src == self.sink:
+                        return 0
+                    else:
+                        return float("inf")
+                visited[src] = None
+                dst = routes[src]
+                ret = self.distance(src, dst) + discover(dst)
+                visited[src] = ret
+                return ret
+
+            dist = 0
+            for head in heads:
+                dist += discover(head)
+            return dist
 
         def func(idt: np.ndarray) -> float:
             heads, routes = self.get_heads_and_routes(candidates, idt)
-            if len(set(heads)) != len(heads):
-                return float("inf")
-            if not self.is_valid_route(heads, routes):
-                return float("inf")
-            fitness = f(heads)
-            for src in heads:
-                dst = routes[src]
-                fitness += self.distance(src, dst)
+            fitness = f(heads) * 500 + g(heads, routes)
             return fitness
 
+        # I think it's a total piece of shit
         dim = k + k
         lb = np.array(
             [1] * k + [0] * k
@@ -110,8 +106,7 @@ class JSORouter(LEACHHierarchical):
 
     def cluster_head_select(self):
         """select cluster head and route"""
-        self.clusters = {}
-        self.sink_cluster = set()
+        self.clear_clusters()
         while True:
             candidates = self.alive_non_sinks
             self.jso_target = self.get_jso_target(self.n_cluster, candidates)
@@ -122,10 +117,12 @@ class JSORouter(LEACHHierarchical):
                 print("invalid")
         # print(opt)
         print([int(i) for i in opt], val)
+
         heads, routes = self.get_heads_and_routes(candidates, opt)
         for src in heads:
+            self.add_cluster_head(src)
+        for src in heads:
             dst = routes[src]
-            self.add_cluster_head(dst)
             self.add_cluster_member(dst, src)
 
     def steady_state_phase(self):

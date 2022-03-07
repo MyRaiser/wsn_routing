@@ -191,7 +191,7 @@ class LEACHHierarchical(LEACH):
         self.clear_route()
 
     def add_cluster_head(self, head: Node):
-        if head != self.sink and head not in self.clusters:
+        if (head != self.sink) and (head not in self.clusters):
             self.clusters[head] = set()
         # warning: route of cluster head is undetermined!
 
@@ -212,6 +212,14 @@ class LEACHHierarchical(LEACH):
             return self.sink_cluster
         else:
             return self.clusters[head]
+
+    def set_up_phase(self):
+        # clustering until at least one cluster is generated.
+        while len(self.alive_non_sinks) > 0:
+            self.cluster_head_select()
+            if self.clusters or len(self.sink_cluster) > 0:
+                self.cluster_member_join()
+                break
 
     def steady_state_phase(self):
         self.cluster_run(self.sink)

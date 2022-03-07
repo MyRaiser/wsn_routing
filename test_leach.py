@@ -8,7 +8,7 @@ def test_leach():
     sink = (0, 0)
     nodes = simple_loader(
         sink,
-        uniform_in_square(100, 100, sink)
+        uniform_in_square(200, 100, sink, "left-bottem")
     )
 
     # leach = LEACH(*nodes_on_power_line_naive(), n_cluster=5)

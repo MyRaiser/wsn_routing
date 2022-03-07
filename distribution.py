@@ -60,7 +60,10 @@ def power_line_naive(
     return relays + sensors
 
 
-RelativePosition = Literal["mid", "left-bottem", "left-top", "right-bottem", "right-top"]
+RelativePosition = Literal[
+    "mid", "left-bottem", "left-top", "right-bottem", "right-top",
+    "left-mid"
+]
 
 
 def uniform_in_square(
@@ -80,6 +83,8 @@ def uniform_in_square(
             dx, dy = -side_len, -side_len
         case "mid":
             dx, dy = -side_len / 2, -side_len / 2
+        case "left-mid":
+            dx, dy = 0, -side_len / 2
         case _:
             raise Exception("Invalid relative position.")
     sx, sy = sink

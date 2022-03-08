@@ -7,7 +7,7 @@ from .initializer import logistic_map
 
 def bounded(x: np.ndarray, lb: np.ndarray, ub: np.ndarray) -> np.ndarray:
     """boundary conditions"""
-    while any(x > ub) or any (x < lb):
+    while any(x > ub) or any(x < lb):
         x[x > ub] = ((x - ub) + lb)[x > ub]
         x[x < lb] = ((x - lb) + ub)[x < lb]
     return x

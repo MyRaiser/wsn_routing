@@ -1,15 +1,15 @@
 """clustering routing based on JSO"""
 from typing import Iterable
-from itertools import combinations, combinations_with_replacement
+from itertools import combinations
 
 import numpy as np
 
 from .node import Node
-from .leach import LEACHHierarchical
+from .leach import LEACHGreedy
 from optimizer import optimize, jso
 
 
-class JSORouter(LEACHHierarchical):
+class JSORouter(LEACHGreedy):
     def __init__(
             self,
             sink: Node,
@@ -122,29 +122,3 @@ class JSORouter(LEACHHierarchical):
         heads = self.get_heads_and_routes(candidates, opt)
         for src in heads:
             self.add_cluster_head(src)
-        self.cluster_head_organize()
-
-    def route_cost(self, src: Node, dst: Node) -> float:
-        d = self.distance(src, dst)
-        d_sink = self.distance(src, self.sink)
-        e_dst = dst.energy
-        cost = (d ** 2 + d_sink ** 2) / e_dst
-        return cost
-
-    def cluster_head_organize(self):
-        """use greedy """
-        candidates = set(list(self.clusters.keys()))
-
-        while candidates:
-            min_src, min_dst = min(
-                [(src, dst) for src, dst in combinations_with_replacement(candidates, 2)],
-                key=lambda route: self.route_cost(*route)
-            )
-            if min_src == min_dst:
-                self.add_cluster_member(self.sink, min_src)
-            else:
-                self.add_cluster_member(min_dst, min_src)
-            candidates.remove(min_src)
-
-    def steady_state_phase(self):
-        self.cluster_run(self.sink)

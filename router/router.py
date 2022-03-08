@@ -11,7 +11,7 @@ from numpy.random import rand
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-from router.common import distance, argmin_
+from router.common import distance
 from router.node import NodeCategory, Node
 
 
@@ -214,9 +214,9 @@ class SimpleRouter(Router):
 
         # sensor nodes link to nearst relay
         for node in sensors:
-            nearest_relay = argmin_(
-                lambda x: distance(node.position, x.position),
-                relays
+            nearest_relay = min(
+                relays,
+                key=lambda x: distance(node.position, x.position)
             )
             self.route[self.index(node)] = self.index(nearest_relay)
 
@@ -224,9 +224,9 @@ class SimpleRouter(Router):
         node = self.sink
         free_relay = set(relays)
         while len(free_relay) > 0:
-            nearest = argmin_(
-                lambda x: distance(node.position, x.position),
-                free_relay
+            nearest = min(
+                free_relay,
+                key=lambda x: distance(node.position, x.position)
             )
             self.route[self.index(nearest)] = self.index(node)
             node = nearest

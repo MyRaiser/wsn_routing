@@ -1,5 +1,6 @@
 """clustering routing based on JSO"""
 from typing import Iterable
+from itertools import combinations
 
 import numpy as np
 
@@ -16,40 +17,73 @@ class JSORouter(LEACHHierarchical):
             *,
             n_pop: int,
             iter_max: int,
+            r_0: float,
+            c: float,
             **kwargs
     ):
         super().__init__(
             sink, non_sinks,
             **kwargs
         )
-        self.sink_cluster = set()
+        self.r_0 = r_0
+        self.c = c
+
         self.jso_parameters = {
             "n_pop": n_pop,
             "iter_max": iter_max
         }
         self.jso_target = None
 
-    @staticmethod
-    def get_jso_target(k: int, candidates: list[Node]):
+        self.dist = np.array(
+            [
+                [self.distance(ni, nj) for nj in self.non_sinks] for ni in self.non_sinks
+            ]
+        )
+
+        self.d_to_sink = np.array(
+            [self.distance(self.sink, node) for node in self.non_sinks]
+        )
+
+    def contention_radius(self, d_max: float, d_min: float, d: float) -> float:
+        r = (1 - self.c * (d_max - d) / (d_max - d_min)) * self.r_0
+        return r
+
+    def get_jso_target(self, k: int, candidates: list[Node]):
         # idt is [ch_index] + [ch_route]
         # ch_index in [1, n) except sink node 0
         # ch_route in [0, k + 1) where k means route to sink
         n = len(candidates)
-        energy = [node.energy for node in candidates]
+        energy = np.array([node.energy for node in candidates])
         e_mean = np.mean(energy)
-        # k = ceil(k / (len(self.nodes) - 1) * n)
+        k = int(n * k / (len(self.nodes) - 1))
+        if k <= 0:
+            k = 1
 
-        def f(idt: np.ndarray) -> float:
+        def f(indices: np.ndarray) -> float:
             """judge the selection of cluster heads"""
             # if len(heads) != len(set(heads)):
             #     return float("inf")
-            indices = [int(i) for i in idt]
             e = np.mean([energy[i] for i in indices])
             return 1 / (e / e_mean)
 
+        def g(indices: np.ndarray) -> float:
+            ret = 0
+            d = np.array([self.d_to_sink[i] for i in indices])
+            d_max = np.max(d)
+            d_min = np.min(d)
+            for a, b in combinations((x for x in range(len(indices))), 2):
+                i = indices[a]
+                j = indices[b]
+                ri = self.contention_radius(d_max, d_min, d[a])
+                rj = self.contention_radius(d_max, d_min, d[b])
+                tmp = self.distance(candidates[i], candidates[j]) - (ri + rj)
+                ret += tmp ** 2
+            return ret / len(indices) ** 2
+
         def func(idt: np.ndarray) -> float:
             # heads = self.get_heads_and_routes(candidates, idt)
-            fitness = f(idt)
+            indices = np.array([int(i) for i in set(idt)])
+            fitness = f(indices) + g(indices) * 1e-4
             return fitness
 
         dim = k
@@ -72,16 +106,12 @@ class JSORouter(LEACHHierarchical):
     def cluster_head_select(self):
         """select cluster head and route"""
         self.clear_clusters()
-        while True:
-            candidates = self.alive_non_sinks
-            self.jso_target = self.get_jso_target(self.n_cluster, candidates)
-            opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
-            if val != float("inf"):
-                break
-            else:
-                print("invalid")
+
+        candidates = self.alive_non_sinks
+        self.jso_target = self.get_jso_target(self.n_cluster, candidates)
+        opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
         # print(opt)
-        # print([int(i) for i in opt], val)
+        print([int(i) for i in opt], val)
 
         heads = self.get_heads_and_routes(candidates, opt)
         for src in heads:

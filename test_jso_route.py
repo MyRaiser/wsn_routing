@@ -10,17 +10,19 @@ from router.leach import LEACH, LEACHPrim
 def test_jso_route():
     sink = (0, 0)
     # distribution = power_line_naive(4, 375, 0, 0, 25, 40, sink)
-    distribution = uniform_in_square(100, 200, sink, "mid")
-    clusters = 14
+    distribution = uniform_in_square(200, 100, sink, "left-mid")
+    clusters = 7
     cases = {
+        "JSO": JSORouter,
         "LEACH": LEACH,
-        "LEACH-P": LEACHPrim,
-        "JSO": JSORouter
+        "LEACH-P": LEACHPrim
     }
     parameters = {
         "JSO": {
             "n_pop": 50,
-            "iter_max": 100
+            "iter_max": 50,
+            "r_0": 50,
+            "c": 0.4
         }
     }
     parameters = defaultdict(dict, **parameters)
@@ -41,7 +43,8 @@ def test_jso_route():
             count += 1
             n = len(router.alive_non_sinks)
             n_alive_rt.append(n)
-            print(f"round = {count}, alive = {n}")
+            c = len(router.clusters)
+            print(f"round = {count}, alive = {n}, clusters = {c}")
             # router.plot()
         n_alive[case] = n_alive_rt
 

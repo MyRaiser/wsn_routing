@@ -1,6 +1,6 @@
 """clustering routing based on JSO"""
 from typing import Iterable
-from itertools import combinations
+from itertools import combinations, combinations_with_replacement
 
 import numpy as np
 
@@ -78,12 +78,18 @@ class JSORouter(LEACHHierarchical):
                 rj = self.contention_radius(d_max, d_min, d[b])
                 tmp = self.distance(candidates[i], candidates[j]) - (ri + rj)
                 ret += tmp ** 2
-            return ret / len(indices) ** 2
+            ret = ret / len(indices) ** 2
+
+            def sigmoid(x: float) -> float:
+                return 1 / (1 + np.exp(-x)) - 0.5
+
+            return sigmoid(ret)
 
         def func(idt: np.ndarray) -> float:
             # heads = self.get_heads_and_routes(candidates, idt)
             indices = np.array([int(i) for i in set(idt)])
-            fitness = f(indices) + g(indices) * 1e-4
+            # fitness = f(indices) + g(indices) * 2.5 * 1e-4
+            fitness = f(indices) + g(indices)
             return fitness
 
         dim = k
@@ -118,30 +124,27 @@ class JSORouter(LEACHHierarchical):
             self.add_cluster_head(src)
         self.cluster_head_organize()
 
+    def route_cost(self, src: Node, dst: Node) -> float:
+        d = self.distance(src, dst)
+        d_sink = self.distance(src, self.sink)
+        e_dst = dst.energy
+        cost = (d ** 2 + d_sink ** 2) / e_dst
+        return cost
+
     def cluster_head_organize(self):
-        """use Prim algorithm to form a tree of cluster heads"""
-        visited = set()
-        visited.add(self.sink)
+        """use greedy """
         candidates = set(list(self.clusters.keys()))
-        self.sink_cluster = set()
 
         while candidates:
             min_src, min_dst = min(
-                [
-                    min(
-                        [(src, dst) for src in candidates],
-                        key=lambda x: self.distance(x[0], x[1]),
-                    ) for dst in visited
-                ],
-                key=lambda x: self.distance(x[0], x[1]),
+                [(src, dst) for src, dst in combinations_with_replacement(candidates, 2)],
+                key=lambda route: self.route_cost(*route)
             )
-            visited.add(min_src)
-            candidates.remove(min_src)
-            self.set_route(min_src, min_dst)
-            if min_dst == self.sink:
-                self.sink_cluster.add(min_src)
+            if min_src == min_dst:
+                self.add_cluster_member(self.sink, min_src)
             else:
-                self.clusters[min_dst].add(min_src)
+                self.add_cluster_member(min_dst, min_src)
+            candidates.remove(min_src)
 
     def steady_state_phase(self):
         self.cluster_run(self.sink)

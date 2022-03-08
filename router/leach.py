@@ -238,6 +238,19 @@ class LEACHHierarchical(LEACH):
                 member.singlecast(self.size_data, head)
                 size_not_agg += self.size_data
         return self.aggregation(head, size_not_agg) + size_agg
+        # members = self.get_cluster_members(head)
+        # size_agg = 0
+        # size_not_agg = self.size_data
+        # for member in members:
+        #     if self.is_cluster_head(member):
+        #         size_sub = self.cluster_run(member)
+        #         member.singlecast(size_sub, head)
+        #         size_not_agg += size_sub
+        #     else:
+        #         # cluster member send to head
+        #         member.singlecast(self.size_data, head)
+        #         size_not_agg += self.size_data
+        # return self.aggregation(head, size_not_agg) + size_agg
 
 
 class LEACHPrim(LEACHHierarchical):

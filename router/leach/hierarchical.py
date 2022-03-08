@@ -1,8 +1,9 @@
 from abc import ABCMeta, abstractmethod
 from typing import Iterable
-from itertools import chain, combinations_with_replacement
+from itertools import chain
 
 from router import Node
+from router.routing import prim, greedy
 from .leach import LEACH
 
 
@@ -85,33 +86,13 @@ class HierarchicalLEACH(LEACH, metaclass=ABCMeta):
 
 class LEACHPrim(HierarchicalLEACH):
     def cluster_head_routing(self):
-        """use Prim algorithm to form a tree of cluster heads"""
-        visited = set()
-        visited.add(self.sink)
-        candidates = set(list(self.clusters.keys()))
-        self.sink_cluster = set()
-
-        while candidates:
-            min_src, min_dst = min(
-                [
-                    min(
-                        [(src, dst) for src in candidates],
-                        key=lambda x: self.distance(x[0], x[1]),
-                    ) for dst in visited
-                ],
-                key=lambda x: self.distance(x[0], x[1]),
-            )
-            visited.add(min_src)
-            candidates.remove(min_src)
-            self.set_route(min_src, min_dst)
-            if min_dst == self.sink:
-                self.sink_cluster.add(min_src)
-            else:
-                self.clusters[min_dst].add(min_src)
+        routes = prim(lambda n1, n2: self.distance(n1, n2), self.get_cluster_heads(), self.sink)
+        for src, dst in routes:
+            self.add_cluster_member(dst, src)
 
         # message exchange
         # organization of heads is done by sink
-        for head in self.clusters:
+        for head in self.get_cluster_heads():
             head.singlecast(self.size_control, self.sink)
             head.recv_broadcast(self.size_control)
 
@@ -125,16 +106,6 @@ class LEACHGreedy(HierarchicalLEACH):
         return cost
 
     def cluster_head_routing(self):
-        """use greedy """
-        candidates = set(list(self.clusters.keys()))
-
-        while candidates:
-            min_src, min_dst = min(
-                [(src, dst) for src, dst in combinations_with_replacement(candidates, 2)],
-                key=lambda route: self.route_cost(*route)
-            )
-            if min_src == min_dst:
-                self.add_cluster_member(self.sink, min_src)
-            else:
-                self.add_cluster_member(min_dst, min_src)
-            candidates.remove(min_src)
+        routes = greedy(self.route_cost, self.get_cluster_heads(), self.sink)
+        for src, dst in routes:
+            self.add_cluster_member(dst, src)

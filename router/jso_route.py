@@ -6,10 +6,11 @@ import numpy as np
 
 from .node import Node
 from .leach import LEACHGreedy
+from .routing import prim
 from optimizer import optimize, jso
 
 
-class JSORouter(LEACHGreedy):
+class JSOGreedy(LEACHGreedy):
     def __init__(
             self,
             sink: Node,
@@ -122,3 +123,16 @@ class JSORouter(LEACHGreedy):
         heads = self.get_heads_and_routes(candidates, opt)
         for src in heads:
             self.add_cluster_head(src)
+
+
+class JSOPrim(JSOGreedy):
+    def cluster_head_routing(self):
+        routes = prim(lambda n1, n2: self.distance(n1, n2), self.get_cluster_heads(), self.sink)
+        for src, dst in routes:
+            self.add_cluster_member(dst, src)
+
+        # message exchange
+        # organization of heads is done by sink
+        for head in self.get_cluster_heads():
+            head.singlecast(self.size_control, self.sink)
+            head.recv_broadcast(self.size_control)

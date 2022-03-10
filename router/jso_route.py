@@ -3,6 +3,8 @@ from typing import Iterable
 from itertools import combinations
 
 import numpy as np
+from filterpy.kalman import KalmanFilter
+from filterpy.common.discretization import Q_discrete_white_noise
 
 from .node import Node
 from .leach import LEACHGreedy
@@ -49,13 +51,12 @@ class JSOGreedy(LEACHGreedy):
         r = (1 - self.c * (d_max - d) / (d_max - d_min)) * self.r_0
         return r
 
-    def get_jso_target(self, k: int, candidates: list[Node]):
+    def get_jso_target(self, k: int, candidates: list[Node], energy: np.ndarray, e_mean):
         # idt is [ch_index] + [ch_route]
         # ch_index in [1, n) except sink node 0
         # ch_route in [0, k + 1) where k means route to sink
         n = len(candidates)
-        energy = np.array([node.energy for node in candidates])
-        e_mean = np.mean(energy)
+
         k = int(n * k / (len(self.nodes) - 1))
         if k <= 0:
             k = 1
@@ -115,7 +116,9 @@ class JSOGreedy(LEACHGreedy):
         self.clear_clusters()
 
         candidates = self.alive_non_sinks
-        self.jso_target = self.get_jso_target(self.n_cluster, candidates)
+        energy = np.array([node.energy for node in candidates])
+        e_mean = np.mean(energy)
+        self.jso_target = self.get_jso_target(self.n_cluster, candidates, energy, e_mean)
         opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
         # print(opt)
         print([int(i) for i in opt], val)
@@ -136,3 +139,110 @@ class JSOPrim(JSOGreedy):
         for head in self.get_cluster_heads():
             head.singlecast(self.size_control, self.sink)
             head.recv_broadcast(self.size_control)
+
+
+class JSOKalman(JSOGreedy):
+    def __init__(
+            self,
+            sink: Node,
+            non_sinks: Iterable[Node],
+            *,
+            kalman_period: int = 10,
+            kalman_warm_up: int = 2,
+            kalman_p: float = 1000,
+            kalman_r: float = 0.1,
+            **kwargs,
+    ):
+        super().__init__(sink, non_sinks, **kwargs)
+        self.kalman_period = kalman_period
+        self.kalman_warm_up = kalman_warm_up
+        self.kalman_used_heads = set()
+        self.kalman = KalmanFilter(dim_x=2, dim_z=1)
+        self.kalman.F = np.array([
+            [1, 1],
+            [0, 1],
+        ])
+        self.kalman.H = np.array([[1, 0]])
+        self.kalman.P += kalman_p
+        self.kalman.R = kalman_r
+        self.kalman.Q = Q_discrete_white_noise(2, 1, .1)
+        self.energy_cached = None  # update every kalman period
+        self.e_mean_cached = None
+        self.energy_estimated = None  # update every round
+
+    def execute(self):
+        self.update_energy_estimated()
+        super().execute()
+
+    def update_energy_estimated(self):
+        if self.round == 0:
+            self.energy_cached = {node: node.energy for node in self.non_sinks}
+            self.energy_estimated = self.energy_cached
+
+        # kalman estimation
+        r = self.round - 1
+        k, rem = divmod(r, self.kalman_period)
+        z = np.mean([node.energy for node in self.non_sinks])  # get observation value
+        if r == 0:  # kalman initialization
+            z0 = np.mean(
+                [self.energy_cached[node] for node in self.energy_cached]
+            )
+            self.e_mean_cached = z0
+            self.kalman.x = np.array([
+                [z],
+                [(z - z0) * self.kalman_period]
+            ])
+            self.kalman.predict()
+        else:
+            if rem == 0:  # update kalman prediction
+                self.e_mean_cached = self.kalman.x[0][0]
+                self.kalman.update(z)
+                self.kalman.predict()
+        t = self.kalman.x[1][0] / self.kalman_period
+        print(t)
+
+        # update estimated value (every round)
+        if k < self.kalman_warm_up:
+            # use actual value
+            self.energy_estimated = {node: node.energy for node in self.non_sinks}
+        else:
+            # use linear estimation
+            self.energy_estimated = {
+                node: self.energy_estimate(self.energy_cached[node], t, rem) for node in self.non_sinks
+            }
+        # update cached value (every kalman period)
+        if rem == 0:
+            self.energy_cached = {node: node.energy for node in self.non_sinks}
+
+    @staticmethod
+    def energy_estimate(e0: float, t: float, k: int) -> float:
+        return e0 + t * k
+
+    def cluster_head_select(self):
+        """select cluster head and route"""
+        self.clear_clusters()
+
+        candidates = list(filter(
+            lambda n: n not in self.kalman_used_heads,
+            self.alive_non_sinks
+        ))
+
+        energy = np.array([
+            self.energy_estimated[node] for node in candidates
+        ])
+        e_mean = self.kalman.x[0][0]
+        self.jso_target = self.get_jso_target(self.n_cluster, candidates, energy, e_mean)
+        opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
+        # print(opt)
+        print([int(i) for i in opt], val)
+
+        heads = self.get_heads_and_routes(candidates, opt)
+        for src in heads:
+            self.add_cluster_head(src)
+
+    def route_cost(self, src: Node, dst: Node) -> float:
+        d = self.distance(src, dst)
+        d_sink = self.distance(src, self.sink)
+        e_dst = self.energy_estimated[dst]
+        cost = (d ** 2 + d_sink ** 2) / e_dst
+        return cost

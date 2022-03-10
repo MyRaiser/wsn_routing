@@ -13,12 +13,19 @@ def test_jso_route():
     distribution = uniform_in_square(200, 100, sink, "mid")
     clusters = 6
     instances = {
-        "JSO-P": JSOPrim,
+        "JSO-K": JSOKalman,
+        # "JSO-P": JSOPrim,
         "JSO-G": JSOGreedy,
         "LEACH": LEACH,
         "LEACH-P": LEACHPrim
     }
     parameters = {
+        "JSO-K": {
+            "n_pop": 50,
+            "iter_max": 50,
+            "r_0": 60,
+            "c": 0.4
+        },
         "JSO-P": {
             "n_pop": 50,
             "iter_max": 50,

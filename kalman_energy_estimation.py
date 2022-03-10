@@ -12,7 +12,7 @@ r_warm = 2
 kf = KalmanFilter(dim_x=2, dim_z=1, dim_u=0)
 kf.x = np.array([
     [e[1]],
-    [(e[1] - e[0])]
+    [(e[1] - e[0]) * period]
 ])
 kf.F = np.array([
     [1, 1],
@@ -21,7 +21,7 @@ kf.F = np.array([
 # kf.B = np.array([[-1]])
 kf.H = np.array([[1, 0]])
 kf.P *= 1000
-kf.R = 1
+kf.R = 0
 kf.Q *= Q_discrete_white_noise(2, 1, .1)
 
 e_prev = kf.x[0][0]

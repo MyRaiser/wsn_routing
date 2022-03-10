@@ -71,38 +71,36 @@ def test_jso_route():
         e_mean[case] = e_mean_case
         e_var[case] = e_var_case
 
-    print(e_mean["LEACH"])
-
-    with plt.style.context(["science", "ieee", "grid"]):
+    with plt.style.context(["science", "ieee", "grid", "no-latex", "cjk-sc-font"]):
         fig, ax = plt.subplots()
         for case in n_alive:
             ax.plot(n_alive[case], label=case)
 
-        ax.legend(title="protocols")
-        ax.set(xlabel="Round")
-        ax.set(ylabel="Number of nodes alive")
+        ax.legend()
+        ax.set(xlabel="轮数")
+        ax.set(ylabel="节点存活数量")
         ax.autoscale(tight=True)
         fig.savefig("alive_nodes.png", dpi=300)
 
-    with plt.style.context(["science", "ieee", "grid"]):
+    with plt.style.context(["science", "ieee", "grid", "no-latex", "cjk-sc-font"]):
         fig, ax = plt.subplots()
         for case in e_mean:
             ax.plot(e_mean[case], label=case)
 
-        ax.legend(title="protocols")
-        ax.set(xlabel="Round")
-        ax.set(ylabel="Mean energy")
+        ax.legend()
+        ax.set(xlabel="轮数")
+        ax.set(ylabel="平均节点能量")
         ax.autoscale(tight=True)
         fig.savefig("energy_mean.png", dpi=300)
 
-    with plt.style.context(["science", "ieee", "grid"]):
+    with plt.style.context(["science", "ieee", "grid", "no-latex", "cjk-sc-font"]):
         fig, ax = plt.subplots()
         for case in e_var:
             ax.plot(e_var[case], label=case)
 
-        ax.legend(title="protocols")
-        ax.set(xlabel="Round")
-        ax.set(ylabel="Energy Variance")
+        ax.legend()
+        ax.set(xlabel="轮数")
+        ax.set(ylabel="节点能量方差")
         ax.autoscale(tight=True)
         fig.savefig("energy_standard_deviation.png", dpi=300)
 

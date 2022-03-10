@@ -75,6 +75,7 @@ def test_jso_route():
         fig, ax = plt.subplots()
         for case in n_alive:
             ax.plot(n_alive[case], label=case)
+            print(n_alive[case])
 
         ax.legend()
         ax.set(xlabel="轮数")
@@ -86,6 +87,7 @@ def test_jso_route():
         fig, ax = plt.subplots()
         for case in e_mean:
             ax.plot(e_mean[case], label=case)
+            print()
 
         ax.legend()
         ax.set(xlabel="轮数")

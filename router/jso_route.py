@@ -12,6 +12,10 @@ from .routing import prim
 from optimizer import optimize, jso
 
 
+def sigmoid(x: float) -> float:
+    return 2 / (1 + np.exp(-x)) - 1
+
+
 class JSOGreedy(LEACHGreedy):
     def __init__(
             self,
@@ -56,8 +60,6 @@ class JSOGreedy(LEACHGreedy):
         # ch_index in [1, n) except sink node 0
         # ch_route in [0, k + 1) where k means route to sink
         n = len(candidates)
-
-        k = int(n * k / (len(self.nodes) - 1))
         if k <= 0:
             k = 1
 
@@ -81,10 +83,6 @@ class JSOGreedy(LEACHGreedy):
                 tmp = self.distance(candidates[i], candidates[j]) - (ri + rj)
                 ret += tmp ** 2
             ret = ret / len(indices) ** 2
-
-            def sigmoid(x: float) -> float:
-                return 1 / (1 + np.exp(-x)) - 0.5
-
             return sigmoid(ret)
 
         def func(idt: np.ndarray) -> float:
@@ -118,7 +116,8 @@ class JSOGreedy(LEACHGreedy):
         candidates = self.alive_non_sinks
         energy = np.array([node.energy for node in candidates])
         e_mean = np.mean(energy)
-        self.jso_target = self.get_jso_target(self.n_cluster, candidates, energy, e_mean)
+        k = int(len(candidates) * self.n_cluster / (len(self.nodes) - 1))
+        self.jso_target = self.get_jso_target(k, candidates, energy, e_mean)
         opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
         # print(opt)
         print([int(i) for i in opt], val)
@@ -212,6 +211,7 @@ class JSOKalman(JSOGreedy):
             }
         # update cached value (every kalman period)
         if rem == 0:
+            self.kalman_used_heads = set()
             self.energy_cached = {node: node.energy for node in self.non_sinks}
 
     @staticmethod
@@ -222,22 +222,28 @@ class JSOKalman(JSOGreedy):
         """select cluster head and route"""
         self.clear_clusters()
 
-        candidates = list(filter(
-            lambda n: n not in self.kalman_used_heads,
-            self.alive_non_sinks
-        ))
+        # candidates = list(filter(
+        #     lambda n: n not in self.kalman_used_heads,
+        #     self.alive_non_sinks
+        # ))
+        # if not candidates:
+        #     candidates = list(self.alive_non_sinks)
+
+        candidates = list(self.alive_non_sinks)
 
         energy = np.array([
             self.energy_estimated[node] for node in candidates
         ])
         e_mean = self.kalman.x[0][0]
-        self.jso_target = self.get_jso_target(self.n_cluster, candidates, energy, e_mean)
+        k = int(len(candidates) * self.n_cluster / (len(self.nodes) - 1))
+        self.jso_target = self.get_jso_target(k, candidates, energy, e_mean)
         opt, val = optimize(jso(self.jso_target, **self.jso_parameters))
         # print(opt)
         print([int(i) for i in opt], val)
 
         heads = self.get_heads_and_routes(candidates, opt)
         for src in heads:
+            self.kalman_used_heads.add(src)
             self.add_cluster_head(src)
 
     def route_cost(self, src: Node, dst: Node) -> float:

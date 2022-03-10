@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractmethod
 from typing import Iterable
 from itertools import chain
-
 from router import Node
 from router.routing import prim, greedy
 from .leach import LEACH
@@ -42,6 +41,9 @@ class HierarchicalLEACH(LEACH, metaclass=ABCMeta):
 
     def get_cluster_heads(self):
         return chain(iter(self.clusters), [self.sink])
+
+    def get_real_cluster_heads(self):
+        return iter(self.clusters)
 
     def get_cluster_members(self, head: Node):
         assert head in self.clusters or head == self.sink
@@ -86,7 +88,7 @@ class HierarchicalLEACH(LEACH, metaclass=ABCMeta):
 
 class LEACHPrim(HierarchicalLEACH):
     def cluster_head_routing(self):
-        routes = prim(lambda n1, n2: self.distance(n1, n2), self.get_cluster_heads(), self.sink)
+        routes = prim(lambda n1, n2: self.distance(n1, n2), self.get_real_cluster_heads(), self.sink)
         for src, dst in routes:
             self.add_cluster_member(dst, src)
 
@@ -106,6 +108,6 @@ class LEACHGreedy(HierarchicalLEACH):
         return cost
 
     def cluster_head_routing(self):
-        routes = greedy(self.route_cost, self.get_cluster_heads(), self.sink)
+        routes = greedy(self.route_cost, self.get_real_cluster_heads(), self.sink)
         for src, dst in routes:
             self.add_cluster_member(dst, src)

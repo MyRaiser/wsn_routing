@@ -69,6 +69,7 @@ class LEACH(Router, ClusterBased):
     def execute(self):
         self.set_up_phase()
         self.steady_state_phase()
+        self.round += 1
 
     def set_up_phase(self):
         # clustering until at least one cluster is generated.
@@ -92,7 +93,6 @@ class LEACH(Router, ClusterBased):
                     self.rounds_non_head[node] = 0
             else:
                 self.rounds_non_head[node] += 1
-        self.round += 1
 
     def cluster_member_join(self):
         """members join clusters"""

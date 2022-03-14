@@ -6,7 +6,7 @@ import numpy as np
 from filterpy.kalman import KalmanFilter
 from filterpy.common.discretization import Q_discrete_white_noise
 
-from .node import Node
+from .node import Node, dist_threshold
 from .leach import LEACHGreedy
 from .routing import prim
 from optimizer import optimize, jso
@@ -26,12 +26,14 @@ class JSOGreedy(LEACHGreedy):
             iter_max: int,
             r_0: float,
             c: float,
+            l1: float,
             **kwargs
     ):
         super().__init__(
             sink, non_sinks,
             **kwargs
         )
+        self.l1 = l1
         self.r_0 = r_0
         self.c = c
 
@@ -52,6 +54,8 @@ class JSOGreedy(LEACHGreedy):
         )
 
     def contention_radius(self, d_max: float, d_min: float, d: float) -> float:
+        if d_max == d_min:
+            return self.r_0
         r = (1 - self.c * (d_max - d) / (d_max - d_min)) * self.r_0
         return r
 
@@ -89,7 +93,7 @@ class JSOGreedy(LEACHGreedy):
             # heads = self.get_heads_and_routes(candidates, idt)
             indices = np.array([int(i) for i in set(idt)])
             # fitness = f(indices) + g(indices) * 2.5 * 1e-4
-            fitness = f(indices) + g(indices)
+            fitness = self.l1 * f(indices) + (1 - self.l1) * g(indices)
             return fitness
 
         dim = k
@@ -246,9 +250,16 @@ class JSOKalman(JSOGreedy):
             self.kalman_used_heads.add(src)
             self.add_cluster_head(src)
 
+    @staticmethod
+    def dist_cost(d0: float, d):
+        if d <= d0:
+            return d ** 2
+        else:
+            return d ** 4
+
     def route_cost(self, src: Node, dst: Node) -> float:
         d = self.distance(src, dst)
         d_sink = self.distance(src, self.sink)
         e_dst = self.energy_estimated[dst]
-        cost = (d ** 2 + d_sink ** 2) / e_dst
+        cost = (self.dist_cost(dist_threshold, d) + self.dist_cost(dist_threshold, d_sink)) / e_dst
         return cost

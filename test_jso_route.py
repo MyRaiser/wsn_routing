@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from distribution import *
 from router.jso_route import *
 from router.leach import LEACH, LEACHPrim
+from router.leach.leach_pso import LeachPSO
 
 
 def test_jso_route():
@@ -13,18 +14,28 @@ def test_jso_route():
     distribution = uniform_in_square(200, 100, sink, "mid")
     clusters = 6
     instances = {
-        "JSO-K": JSOKalman,
+        # "LEACH-PSO": LeachPSO,
+        "JSO-Kalman": JSOKalman,
         # "JSO-P": JSOPrim,
-        "JSO-G": JSOGreedy,
+        # "JSO-G": JSOGreedy,
+        # "LEACH-G": LEACHGreedy,
         "LEACH": LEACH,
-        "LEACH-P": LEACHPrim
+        # "LEACH-P": LEACHPrim
     }
     parameters = {
-        "JSO-K": {
+        "LEACH-PSO": {
             "n_pop": 50,
             "iter_max": 50,
             "r_0": 60,
-            "c": 0.4
+            "c": 0.4,
+            "l1": 0.6
+        },
+        "JSO-Kalman": {
+            "n_pop": 50,
+            "iter_max": 50,
+            "r_0": 60,
+            "c": 0.4,
+            "l1": 0.6
         },
         "JSO-P": {
             "n_pop": 50,

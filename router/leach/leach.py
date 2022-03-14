@@ -16,7 +16,7 @@ class LEACH(Router, ClusterBased):
             non_sinks: Iterable[Node],
             *,
             n_cluster: int,
-            size_control: int = 32,
+            size_control: int = 128,
             size_data: int = 4096,
             energy_agg: float = 5e-9,
             agg_rate: float = 0.6

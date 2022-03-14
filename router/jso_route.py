@@ -130,6 +130,10 @@ class JSOGreedy(LEACHGreedy):
         for src in heads:
             self.add_cluster_head(src)
 
+    def steady_state_phase(self):
+        self.recursive_gathering(self.sink, self.size_data)
+        self.recursive_gathering(self.sink, self.size_control)
+
 
 class JSOPrim(JSOGreedy):
     def cluster_head_routing(self):
@@ -263,3 +267,9 @@ class JSOKalman(JSOGreedy):
         e_dst = self.energy_estimated[dst]
         cost = (self.dist_cost(dist_threshold, d) + self.dist_cost(dist_threshold, d_sink)) / e_dst
         return cost
+
+    def steady_state_phase(self):
+        self.recursive_gathering(self.sink, self.size_data)
+        k, rem = divmod(self.round - 1, self.kalman_period)
+        if self.round == 0 or k < self.kalman_warm_up or rem == 0:
+            self.recursive_gathering(self.sink, self.size_control)

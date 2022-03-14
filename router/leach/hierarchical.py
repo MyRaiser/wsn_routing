@@ -67,22 +67,29 @@ class HierarchicalLEACH(LEACH, metaclass=ABCMeta):
         pass
 
     def steady_state_phase(self):
-        self.cluster_run(self.sink)
+        self.recursive_gathering(self.sink, self.size_data)
 
-    def cluster_run(self, head: Node) -> int:
+    def recursive_gathering(self, head: Node, size: int) -> int:
+        """
+        Each node send {size} bit, aggregated by head.
+
+        :param head: cluster head
+        :param size: size of gathered message
+        :return: total size of this cluster after aggregation
+        """
         members = self.get_cluster_members(head)
         size_agg = 0
-        size_not_agg = self.size_data
+        size_not_agg = size
         for member in members:
             if self.is_cluster_head(member):
-                size_sub = self.cluster_run(member)
+                size_sub = self.recursive_gathering(member, size)
                 member.singlecast(size_sub, head)
                 size_agg += size_sub
                 # size_not_agg += size_sub
             else:
                 # cluster member send to head
-                member.singlecast(self.size_data, head)
-                size_not_agg += self.size_data
+                member.singlecast(size, head)
+                size_not_agg += size
         return self.aggregation(head, size_not_agg) + size_agg
 
 
